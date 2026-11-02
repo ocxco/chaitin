@@ -7,6 +7,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,16 +35,25 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -53,6 +63,7 @@ import com.uniomo.wafce.core.UiState
 import com.uniomo.wafce.ui.theme.Brand
 import com.uniomo.wafce.ui.theme.BrandDark
 import com.uniomo.wafce.ui.theme.NeutralSoft
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 val CardShape = RoundedCornerShape(16.dp)
@@ -449,6 +460,9 @@ fun TrendChart(
     }
     val safe = if (points.size == 1) listOf(points.first(), points.first()) else points
     val max = safe.maxOrNull()?.coerceAtLeast(1f) ?: 1f
+    var selected by remember(points) { mutableStateOf<Int?>(null) }
+    val textMeasurer = rememberTextMeasurer()
+    val scheme = MaterialTheme.colorScheme
     Column(modifier.fillMaxWidth()) {
         Text(
             "峰值 ${fmtNum(max)}",
@@ -457,7 +471,19 @@ fun TrendChart(
             modifier = Modifier.align(Alignment.End)
         )
         Spacer(Modifier.height(2.dp))
-        Canvas(Modifier.fillMaxWidth().height(height)) {
+        Canvas(
+            Modifier
+                .fillMaxWidth()
+                .height(height)
+                .pointerInput(safe) {
+                    detectTapGestures { offset ->
+                        val stepX = size.width.toFloat() / (safe.size - 1).coerceAtLeast(1)
+                        val idx = if (stepX <= 0f) null
+                        else (offset.x / stepX).roundToInt().coerceIn(0, safe.size - 1)
+                        selected = if (selected == idx) null else idx
+                    }
+                }
+        ) {
             val stepX = size.width / (safe.size - 1).coerceAtLeast(1)
             fun yOf(v: Float) = size.height - (v / max) * size.height * 0.88f - size.height * 0.06f
 
@@ -494,6 +520,38 @@ fun TrendChart(
                     radius = 3.2.dp.toPx(),
                     center = Offset(i * stepX, yOf(v))
                 )
+            }
+
+            // 点击选中点：放大高亮 + 数值气泡，再点同一点取消
+            val sel = selected
+            if (sel != null && sel in safe.indices) {
+                val px = sel * stepX
+                val py = yOf(safe[sel])
+                drawCircle(color = scheme.surface, radius = 5.6.dp.toPx(), center = Offset(px, py))
+                drawCircle(color = color, radius = 3.4.dp.toPx(), center = Offset(px, py))
+
+                val layout = textMeasurer.measure(
+                    AnnotatedString(fmtNum(safe[sel])),
+                    style = TextStyle(
+                        color = scheme.inverseOnSurface,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                )
+                val padX = 7.dp.toPx()
+                val padY = 3.dp.toPx()
+                val bw = layout.size.width + padX * 2
+                val bh = layout.size.height + padY * 2
+                var bx = (px - bw / 2).coerceIn(0f, size.width - bw)
+                var by = py - bh - 7.dp.toPx()
+                if (by < 0f) by = py + 7.dp.toPx()
+                drawRoundRect(
+                    color = scheme.inverseSurface,
+                    topLeft = Offset(bx, by),
+                    size = Size(bw, bh),
+                    cornerRadius = CornerRadius(6.dp.toPx())
+                )
+                drawText(layout, topLeft = Offset(bx + padX, by + padY))
             }
         }
         if (labels.size >= 2) {
