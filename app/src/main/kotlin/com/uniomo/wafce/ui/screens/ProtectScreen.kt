@@ -250,7 +250,10 @@ class ProtectVm : ViewModel() {
     fun loadGroups(account: AccountProfile, my: Int = epoch) {
         viewModelScope.launch {
             loadInto(TAB_IPGROUP, my, { groups = it }) {
-                val body = ApiClient.apiFor(account).ipGroups(mapOf("page" to "1", "page_size" to "100"))
+                // 不带 top 时该接口不返回 ips，条数恒为 0；top 为每组返回的 IP 条数上限（引擎每组最多生效 1000 条）
+                val body = ApiClient.apiFor(account).ipGroups(
+                    mapOf("page" to "1", "page_size" to "100", "top" to "1000")
+                )
                 Resp.listOf(body).map {
                     val original = Resp.strList(it, "original", "ips", "ip")
                     val cidrs = Resp.strList(it, "cidrs", "expanded")
